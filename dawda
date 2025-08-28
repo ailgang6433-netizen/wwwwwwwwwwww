@@ -1,0 +1,725 @@
+-- Anti-cheat bypass
+game:GetService("ScriptContext"):SetTimeout(1)
+
+local oldTick
+oldTick = hookfunction(getrenv().tick, function(...)
+    local result = oldTick(...)
+    if not checkcaller() and tostring(getcallingscript()):find("?") then
+        return coroutine.yield()
+    end
+    return result
+end)
+
+task.wait(15.5)
+
+local oldGcinfo
+oldGcinfo = hookfunction(gcinfo, function(...)
+    local result = oldGcinfo(...)
+    if tostring(getcallingscript()):find("?") then
+        return result + math.random(0, 10000)
+    end
+    return result
+end)
+
+for _, conn in pairs(getconnections(cloneref(game:GetService("ScriptContext")).Error)) do
+    conn:Disable()
+end
+
+task.spawn(function()
+    local Players = cloneref(game:GetService("Players"))
+    local Data = {}
+
+    if not Players.LocalPlayer.Character then
+        Players.LocalPlayer.CharacterAdded:Wait()
+        task.wait(1)
+    end
+
+    for _, obj in pairs(Players.LocalPlayer.Character:GetDescendants()) do
+        pcall(function()
+            Data[tostring(obj)] = obj.CanCollide
+        end)
+    end
+
+    local oldIndex
+    oldIndex = hookmetamethod(game, "__index", function(self, key)
+        if checkcaller() then
+            return oldIndex(self, key)
+        end
+
+        if tostring(self) == "Humanoid" and key == "WalkSpeed" then
+            return getgenv().CustomWalkSpeed or 10
+        end
+
+        if Data[tostring(self)] and key == "CanCollide" then
+            return Data[tostring(self)]
+        end
+
+        return oldIndex(self, key)
+    end)
+end)
+
+getgenv().AntiCheatBypass = true
+repeat task.wait() until getgenv().AntiCheatBypass
+print("loaded")
+
+local Players = game:GetService("Players")
+local localPlayer = Players.LocalPlayer
+
+local library = loadstring(game:GetObjects("rbxassetid://7657867786")[1].Source)()
+local window = library:CreateWindow({Name = "Trench Script", Themeable = {Info = "Made by Spoken % lil jr"}})
+
+local generalTab = window:CreateTab({Name = "General"})
+
+local generalSection = generalTab:CreateSection({Name = "LocalPlayer"})
+
+local instaInteractEnabled = false
+local holdConnections = {}
+local defaultHoldDuration = 1 -- You can change this if your game uses a different value
+
+generalSection:AddToggle({
+    Name = "| Insta-Interact",
+    Callback = function(enabled)
+        instaInteractEnabled = enabled
+
+        -- Disconnect previous connections
+        for _, conn in ipairs(holdConnections) do
+            if conn then conn:Disconnect() end
+        end
+        holdConnections = {}
+
+        -- Update all existing prompts
+        for _, prompt in pairs(workspace:GetDescendants()) do
+            if prompt:IsA("ProximityPrompt") then
+                prompt.HoldDuration = enabled and 0 or defaultHoldDuration
+            end
+        end
+
+        if enabled then
+            -- Update any new prompts that appear
+            table.insert(holdConnections, game:GetService("ProximityPromptService").PromptShown:Connect(function(prompt)
+                prompt.HoldDuration = 0
+            end))
+
+            table.insert(holdConnections, game:GetService("ProximityPromptService").PromptButtonHoldBegan:Connect(function(prompt)
+                prompt.HoldDuration = 0
+            end))
+        end
+    end
+})
+
+generalSection:AddSlider({
+    Name = "Walk Speed",
+    Flag = "General_WalkSpeed",
+    Min = 0,
+    Max = 23,
+    Value = 16,
+    Callback = function(val)
+        getgenv().CustomWalkSpeed = val
+        if localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid") then
+            localPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = val
+        end
+    end
+})
+
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local localPlayer = Players.LocalPlayer
+
+local noclipEnabled = false
+
+generalSection:AddToggle({
+    Name = "| Noclip",
+    Flag = "General_Noclip",
+    Callback = function(state)
+        noclipEnabled = state
+
+        local character = localPlayer.Character
+        if not character then return end
+
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = not state
+            end
+        end
+    end
+})
+
+local espTab = window:CreateTab({Name = "ESP"})
+local espSection = espTab:CreateSection({Name = "ESP"})
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+
+local nameESPEnabled = false
+local nameTags = {}
+local nameESPConnection = nil
+local playerAddedConn = nil
+local playerRemovingConn = nil
+
+local function createTagForPlayer(player)
+    if not nameTags[player] then
+        local tag = Drawing.new("Text")
+        tag.Size = 13
+        tag.Center = true
+        tag.Outline = true
+        tag.OutlineColor = Color3.new(0, 0, 0)
+        tag.Font = 2
+        tag.Color = Color3.new(1, 1, 1)
+        tag.Visible = false
+        nameTags[player] = tag
+    end
+end
+
+local function removeTagForPlayer(player)
+    if nameTags[player] then
+        if nameTags[player].Remove then
+            nameTags[player]:Remove()
+        end
+        nameTags[player] = nil
+    end
+end
+
+espSection:AddToggle({
+    Name = "| Name Esp",
+    Callback = function(enabled)
+        nameESPEnabled = enabled
+
+        -- Disconnect old connections
+        if nameESPConnection then
+            nameESPConnection:Disconnect()
+            nameESPConnection = nil
+        end
+        if playerAddedConn then
+            playerAddedConn:Disconnect()
+            playerAddedConn = nil
+        end
+        if playerRemovingConn then
+            playerRemovingConn:Disconnect()
+            playerRemovingConn = nil
+        end
+
+        -- Remove all tags
+        for player, tag in pairs(nameTags) do
+            if tag.Remove then
+                tag:Remove()
+            end
+        end
+        nameTags = {}
+
+        if enabled then
+            -- Create tags for existing players
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer then
+                    createTagForPlayer(player)
+                end
+            end
+
+            -- Listen for new players joining
+            playerAddedConn = Players.PlayerAdded:Connect(function(player)
+                if nameESPEnabled and player ~= LocalPlayer then
+                    createTagForPlayer(player)
+                end
+            end)
+
+            -- Listen for players leaving
+            playerRemovingConn = Players.PlayerRemoving:Connect(function(player)
+                removeTagForPlayer(player)
+            end)
+
+            -- Main RenderStepped loop to update positions
+            nameESPConnection = RunService.RenderStepped:Connect(function()
+                for player, tag in pairs(nameTags) do
+                    if player.Character and player.Character:FindFirstChild("Head") then
+                        local head = player.Character.Head
+                        local pos, onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1.5, 0))
+                        if onScreen then
+                            tag.Position = Vector2.new(pos.X, pos.Y)
+                            tag.Text = player.Name
+                            tag.Visible = true
+                        else
+                            tag.Visible = false
+                        end
+                    else
+                        tag.Visible = false
+                    end
+                end
+            end)
+        end
+    end
+})
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+
+local boxESPEnabled = false
+local boxTags = {}
+local boxESPConnection = nil
+
+espSection:AddToggle({
+    Name = "| Box Esp",
+    Callback = function(enabled)
+        boxESPEnabled = enabled
+
+        -- Cleanup old connections and drawings
+        if boxESPConnection then
+            boxESPConnection:Disconnect()
+            boxESPConnection = nil
+        end
+
+        for _, box in pairs(boxTags) do
+            if box and box.Remove then
+                box:Remove()
+            end
+        end
+        boxTags = {}
+
+        if boxESPEnabled then
+            boxESPConnection = RunService.RenderStepped:Connect(function()
+                for _, player in pairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") and player.Character:FindFirstChild("HumanoidRootPart") then
+                        local head = player.Character.Head
+                        local rootPart = player.Character.HumanoidRootPart
+
+                        -- Get screen positions for the head (top) and root (bottom)
+                        local topPos, topVisible = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+                        local bottomPos, bottomVisible = Camera:WorldToViewportPoint(rootPart.Position - Vector3.new(0, 3, 0))
+
+                        if topVisible and bottomVisible then
+                            -- Calculate box position and size
+                            local height = bottomPos.Y - topPos.Y
+                            local width = height / 2  -- roughly half height for width, adjust if needed
+                            local x = topPos.X - width / 2
+                            local y = topPos.Y
+
+                            if not boxTags[player] then
+                                local box = Drawing.new("Square")
+                                box.Visible = false
+                                box.Filled = false
+                                box.Color = Color3.new(0, 1, 0)  -- Green outline
+                                box.Thickness = 1
+                                boxTags[player] = box
+                            end
+
+                            local box = boxTags[player]
+                            box.Position = Vector2.new(x, y)
+                            box.Size = Vector2.new(width, height)
+                            box.Visible = true
+                        else
+                            if boxTags[player] then
+                                boxTags[player].Visible = false
+                            end
+                        end
+                    elseif boxTags[player] then
+                        boxTags[player].Visible = false
+                    end
+                end
+            end)
+        end
+    end
+})
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+
+local skeletonESPEnabled = false
+local skeletonLines = {}
+local skeletonESPConnection = nil
+
+local function createLine()
+    local line = Drawing.new("Line")
+    line.Visible = false
+    line.Color = Color3.new(1, 0, 0) -- Changed to Red
+    line.Thickness = 1.5
+    return line
+end
+
+local function getJointPositions(character)
+    local joints = {}
+
+    local function getPos(name)
+        local part = character:FindFirstChild(name)
+        if part then
+            return part.Position
+        end
+        return nil
+    end
+
+    joints.Head = getPos("Head")
+    joints.Neck = joints.Head and (joints.Head + Vector3.new(0, -0.3, 0)) or nil -- estimate neck position slightly below head
+    joints.Torso = getPos("UpperTorso") or getPos("Torso") or getPos("HumanoidRootPart")
+    joints.LeftShoulder = getPos("LeftUpperArm") or getPos("LeftShoulder")
+    joints.RightShoulder = getPos("RightUpperArm") or getPos("RightShoulder")
+    joints.LeftElbow = getPos("LeftLowerArm")
+    joints.RightElbow = getPos("RightLowerArm")
+    joints.LeftHand = getPos("LeftHand")
+    joints.RightHand = getPos("RightHand")
+    joints.LeftHip = getPos("LeftUpperLeg") or getPos("LeftHip")
+    joints.RightHip = getPos("RightUpperLeg") or getPos("RightHip")
+    joints.LeftKnee = getPos("LeftLowerLeg")
+    joints.RightKnee = getPos("RightLowerLeg")
+    joints.LeftFoot = getPos("LeftFoot")
+    joints.RightFoot = getPos("RightFoot")
+
+    return joints
+end
+
+local function drawLineBetweenPoints(line, p1, p2)
+    local p1Pos, p1OnScreen = Camera:WorldToViewportPoint(p1)
+    local p2Pos, p2OnScreen = Camera:WorldToViewportPoint(p2)
+    if p1OnScreen and p2OnScreen then
+        line.From = Vector2.new(p1Pos.X, p1Pos.Y)
+        line.To = Vector2.new(p2Pos.X, p2Pos.Y)
+        line.Visible = true
+    else
+        line.Visible = false
+    end
+end
+
+espSection:AddToggle({
+    Name = "| Skeleton Esp",
+    Callback = function(enabled)
+        skeletonESPEnabled = enabled
+
+        -- Disconnect old connection & remove lines
+        if skeletonESPConnection then
+            skeletonESPConnection:Disconnect()
+            skeletonESPConnection = nil
+        end
+        for _, lines in pairs(skeletonLines) do
+            for _, line in pairs(lines) do
+                if line and line.Remove then
+                    line:Remove()
+                end
+            end
+        end
+        skeletonLines = {}
+
+        if skeletonESPEnabled then
+            skeletonESPConnection = RunService.RenderStepped:Connect(function()
+                for _, player in pairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                        local joints = getJointPositions(player.Character)
+
+                        if not skeletonLines[player] then
+                            skeletonLines[player] = {
+                                createLine(), createLine(), createLine(), createLine(),
+                                createLine(), createLine(), createLine(), createLine(),
+                                createLine(), createLine(), createLine(), createLine(),
+                                createLine()
+                            }
+                        end
+
+                        local lines = skeletonLines[player]
+
+                        -- Draw skeleton lines (head to torso, torso to limbs, etc.)
+                        if joints.Head and joints.Torso then
+                            drawLineBetweenPoints(lines[1], joints.Head, joints.Torso) -- Head to Torso
+                        else
+                            lines[1].Visible = false
+                        end
+
+                        if joints.Torso and joints.LeftShoulder then
+                            drawLineBetweenPoints(lines[2], joints.Torso, joints.LeftShoulder) -- Torso to Left Shoulder
+                        else
+                            lines[2].Visible = false
+                        end
+
+                        if joints.Torso and joints.RightShoulder then
+                            drawLineBetweenPoints(lines[3], joints.Torso, joints.RightShoulder) -- Torso to Right Shoulder
+                        else
+                            lines[3].Visible = false
+                        end
+
+                        if joints.LeftShoulder and joints.LeftElbow then
+                            drawLineBetweenPoints(lines[4], joints.LeftShoulder, joints.LeftElbow) -- Left Shoulder to Left Elbow
+                        else
+                            lines[4].Visible = false
+                        end
+
+                        if joints.RightShoulder and joints.RightElbow then
+                            drawLineBetweenPoints(lines[5], joints.RightShoulder, joints.RightElbow) -- Right Shoulder to Right Elbow
+                        else
+                            lines[5].Visible = false
+                        end
+
+                        if joints.LeftElbow and joints.LeftHand then
+                            drawLineBetweenPoints(lines[6], joints.LeftElbow, joints.LeftHand) -- Left Elbow to Left Hand
+                        else
+                            lines[6].Visible = false
+                        end
+
+                        if joints.RightElbow and joints.RightHand then
+                            drawLineBetweenPoints(lines[7], joints.RightElbow, joints.RightHand) -- Right Elbow to Right Hand
+                        else
+                            lines[7].Visible = false
+                        end
+
+                        if joints.Torso and joints.LeftHip then
+                            drawLineBetweenPoints(lines[8], joints.Torso, joints.LeftHip) -- Torso to Left Hip
+                        else
+                            lines[8].Visible = false
+                        end
+
+                        if joints.Torso and joints.RightHip then
+                            drawLineBetweenPoints(lines[9], joints.Torso, joints.RightHip) -- Torso to Right Hip
+                        else
+                            lines[9].Visible = false
+                        end
+
+                        if joints.LeftHip and joints.LeftKnee then
+                            drawLineBetweenPoints(lines[10], joints.LeftHip, joints.LeftKnee) -- Left Hip to Left Knee
+                        else
+                            lines[10].Visible = false
+                        end
+
+                        if joints.RightHip and joints.RightKnee then
+                            drawLineBetweenPoints(lines[11], joints.RightHip, joints.RightKnee) -- Right Hip to Right Knee
+                        else
+                            lines[11].Visible = false
+                        end
+
+                        if joints.LeftKnee and joints.LeftFoot then
+                            drawLineBetweenPoints(lines[12], joints.LeftKnee, joints.LeftFoot) -- Left Knee to Left Foot
+                        else
+                            lines[12].Visible = false
+                        end
+
+                        if joints.RightKnee and joints.RightFoot then
+                            drawLineBetweenPoints(lines[13], joints.RightKnee, joints.RightFoot) -- Right Knee to Right Foot
+                        else
+                            lines[13].Visible = false
+                        end
+
+                    elseif skeletonLines[player] then
+                        for _, line in pairs(skeletonLines[player]) do
+                            line.Visible = false
+                        end
+                    end
+                end
+            end)
+        end
+    end
+})
+
+-- Create Auto Farm tab
+local autoFarmTab = window:CreateTab({Name = "Auto Farm"})
+local autoFarmSection = autoFarmTab:CreateSection({Name = "Box Farm"})
+-- Variables
+local TweenService = game:GetService("TweenService")
+local player = game.Players.LocalPlayer
+local autoFarmEnabled = false
+
+-- Crate pickup and dropoff positions
+local pickupPosition = Vector3.new(-551.27, 3.54, -85.86)
+local dropoffPosition = Vector3.new(-401.02, 3.36, -71.22)
+
+-- Tween-based movement
+local function moveTo(position)
+    local character = player.Character or player.CharacterAdded:Wait()
+    local hrp = character:WaitForChild("HumanoidRootPart")
+    local distance = (hrp.Position - position).Magnitude
+    local speed = 15
+    local tweenInfo = TweenInfo.new(distance / speed, Enum.EasingStyle.Linear)
+    local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(position)})
+    tween:Play()
+    tween.Completed:Wait()
+end
+
+-- Toggle for auto farming
+autoFarmSection:AddToggle({
+    Name = "| Box Auto Farm",
+    Callback = function(value)
+        autoFarmEnabled = value
+        if value then
+            task.spawn(function()
+                while autoFarmEnabled do
+                    moveTo(pickupPosition)
+                    wait(0.5)
+
+                    -- Simulate pressing E to pick up crate
+                    game:GetService("VirtualInputManager"):SendKeyEvent(true, Enum.KeyCode.E, false, nil)
+                    wait(0.2)
+                    game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.E, false, nil)
+
+                    wait(1.2)
+
+                    moveTo(dropoffPosition)
+                    wait(0.5)
+
+                    -- Simulate pressing E to drop off crate
+                    game:GetService("VirtualInputManager"):SendKeyEvent(true, Enum.KeyCode.E, false, nil)
+                    wait(0.2)
+                    game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.E, false, nil)
+
+                    wait(2)
+                end
+            end)
+        end
+    end
+})
+
+local marshSection = autoFarmTab:CreateSection({Name = "Marshmallow Farm"})
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local backpack = player:WaitForChild("Backpack")
+local tweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+-- New section under Auto Farm tab
+local autoCookSection = autoFarmTab:CreateSection({Name = "Marshmallow Auto Cook"})
+
+-- Ingredient switching setup
+local items = {"Water", "Empty Bag", "Sugar Block Bag", "Gelatin"}
+local switchInterval = 1
+local isSwitching = false
+local autoCookConnection
+local antiAfkConnection
+
+local function equipItem(itemName)
+    local item = backpack:FindFirstChild(itemName)
+    if item then
+        local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:EquipTool(item)
+        end
+    end
+end
+
+local function switchItems()
+    while isSwitching do
+        for _, itemName in ipairs(items) do
+            equipItem(itemName)
+            task.wait(switchInterval)
+        end
+    end
+end
+
+-- Optional manual hotkey toggle (P key)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.P then
+        isSwitching = not isSwitching
+        if isSwitching then
+            task.spawn(switchItems)
+        end
+    end
+end)
+
+-- Add toggle to Auto Farm tab
+marshSection:AddToggle({
+    Name = "| Marshmallow Auto Cook",
+    Flag = "Farming_AutoCook",
+    Callback = function(state)
+        if state then
+            isSwitching = true
+
+            -- Auto cooking loop
+            autoCookConnection = task.spawn(function()
+                while library.flags.Farming_AutoCook do
+                    pcall(function()
+                        for _, house in ipairs({"BH2", "BH3", "BH4"}) do
+                            local pot = game.Workspace:FindFirstChild("Map") and game.Workspace.Map.Houses:FindFirstChild(house)
+                            if pot and pot:FindFirstChild("Interior") then
+                                local prompt = pot.Interior:FindFirstChild("Cooking Pot") and pot.Interior["Cooking Pot"]:FindFirstChild("Attachment") and pot.Interior["Cooking Pot"].Attachment:FindFirstChild("ProximityPrompt")
+                                if prompt then
+                                    fireproximityprompt(prompt)
+                                end
+                            end
+                        end
+                    end)
+                    task.wait(0.5)
+                end
+            end)
+
+            -- Anti-AFK handler
+            antiAfkConnection = task.spawn(function()
+                while library.flags.Farming_AutoCook do
+                    VirtualInputManager:SendMouseMoveEvent(5, 5, game)
+                    task.wait(30)
+                    VirtualInputManager:SendMouseMoveEvent(-5, -5, game)
+                    task.wait(30)
+                end
+            end)
+
+            task.spawn(switchItems)
+
+        else
+            isSwitching = false
+            if autoCookConnection then task.cancel(autoCookConnection) end
+            if antiAfkConnection then task.cancel(antiAfkConnection) end
+        end
+    end
+})
+
+local gunModTab = window:CreateTab({ Name = "Gun Mod" })
+
+-- Create a section inside the tab
+local gunModSection = gunModTab:CreateSection({ Name = "Gun Mods" })
+
+-- Now add the Rapid Fire toggle inside gunModSection
+
+local isRapidFire = false
+local player = game:GetService("Players").LocalPlayer
+
+local function enableRapidFire(tool)
+    if tool and tool:IsA("Tool") then
+        local settingModule = tool:FindFirstChild("Setting")
+        if settingModule and settingModule:IsA("ModuleScript") then
+            local success, settings = pcall(require, settingModule)
+            if success and type(settings) == "table" and settings.FireRate ~= nil then
+                settings.Auto = true
+                settings.FireRate = 0.07
+                settings.ReloadTime = 0
+                settings.Accuracy = 1
+                settings.SpreadX = 0
+                settings.SpreadY = 0
+                settings.Range = 50000
+                settings.JamChance = 0
+                settings.CameraRecoilingEnabled = false
+                settings.Recoil = 0
+            end
+        end
+    end
+end
+
+local function monitorRapidFire()
+    while isRapidFire do
+        local backpack = player:FindFirstChild("Backpack")
+        if backpack then
+            for _, item in ipairs(backpack:GetChildren()) do
+                enableRapidFire(item)
+            end
+        end
+
+        if player.Character then
+            local tool = player.Character:FindFirstChildWhichIsA("Tool")
+            if tool then
+                enableRapidFire(tool)
+            end
+        end
+
+        task.wait(0.1)
+    end
+end
+
+gunModSection:AddToggle({
+    Name = "Rapid Fire",
+    Flag = "GunMod_RapidFire",
+    Callback = function(state)
+        isRapidFire = state
+        if state then
+            task.spawn(function()
+                local success, err = pcall(monitorRapidFire)
+                if not success then
+                    warn("Rapid Fire error: " .. tostring(err))
+                end
+            end)
+        end
+    end
+})
